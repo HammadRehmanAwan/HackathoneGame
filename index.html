@@ -1,0 +1,530 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Solana Highscore Game</title>
+    <!-- Tailwind CSS CDN for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Custom styles for the game and layout */
+        body {
+            font-family: 'Inter', sans-serif; /* Using Inter font as per instructions */
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background-color: #f0f2f5; /* Light grey background */
+            margin: 0;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+        .game-container {
+            background-color: #ffffff; /* White background for the container */
+            border-radius: 15px; /* Rounded corners for the container */
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1); /* Soft shadow */
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            max-width: 500px; /* Max width for larger screens */
+            width: 100%; /* Full width on smaller screens */
+        }
+        canvas {
+            background-color: #e0e7ff; /* Light blue background for the game area */
+            border-radius: 10px; /* Rounded corners for the canvas */
+            border: 2px solid #6366f1; /* Indigo border */
+            display: block;
+            width: 100%; /* Make canvas responsive to container width */
+            max-width: 450px; /* Max width for consistency */
+            height: 450px; /* Fixed height for simplicity in this 2D game */
+            margin-bottom: 20px;
+        }
+        .button-group {
+            display: flex;
+            flex-wrap: wrap; /* Allow buttons to wrap on smaller screens */
+            gap: 10px; /* Space between buttons */
+            justify-content: center;
+            margin-bottom: 20px;
+        }
+        button {
+            padding: 10px 20px;
+            border-radius: 8px; /* Rounded buttons */
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease-in-out; /* Smooth transitions for hover effects */
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); /* Button shadow */
+        }
+        button:hover {
+            transform: translateY(-2px); /* Lift effect on hover */
+            box-shadow: 0 6px 10px rgba(0, 0, 0, 0.15); /* Enhanced shadow on hover */
+        }
+        .btn-primary {
+            background-color: #6366f1; /* Indigo background */
+            color: white;
+            border: none;
+        }
+        .btn-primary:hover {
+            background-color: #4f46e5; /* Darker indigo on hover */
+        }
+        .btn-secondary {
+            background-color: #cbd5e1; /* Slate background */
+            color: #334155; /* Darker slate text */
+            border: none;
+        }
+        .btn-secondary:hover {
+            background-color: #94a3b8; /* Darker slate on hover */
+        }
+        .status-message {
+            margin-top: 15px;
+            padding: 10px;
+            border-radius: 8px;
+            background-color: #fef3c7; /* Light yellow for info */
+            color: #92400e; /* Darker yellow text */
+            border: 1px solid #fcd34d;
+            text-align: center;
+            width: 100%;
+            max-width: 450px;
+            word-wrap: break-word; /* Ensure long messages wrap */
+        }
+        .error-message {
+            background-color: #fee2e2; /* Light red for errors */
+            color: #991b1b; /* Darker red text */
+            border: 1px solid #ef4444;
+        }
+        .success-message {
+            background-color: #d1fae5; /* Light green for success */
+            color: #065f46; /* Darker green text */
+            border: 1px solid #34d399;
+        }
+        .game-info {
+            width: 100%;
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 10px;
+            font-size: 1.1em;
+            font-weight: 500;
+            color: #334155; /* Dark grey text */
+        }
+        /* Responsive adjustments for smaller screens */
+        @media (max-width: 600px) {
+            .game-container {
+                padding: 15px;
+            }
+            canvas {
+                height: 350px; /* Adjust canvas height for smaller screens */
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="game-container">
+        <h1 class="text-3xl font-bold text-gray-800 mb-4">Solana Highscore Dodger</h1>
+        <div class="game-info">
+            <span>Score: <span id="scoreDisplay">0</span></span>
+            <span>High Score: <span id="highScoreDisplay">0</span></span>
+        </div>
+        <canvas id="gameCanvas" width="450" height="450"></canvas>
+        <div class="button-group">
+            <button id="connectWalletBtn" class="btn-primary">Connect Phantom Wallet</button>
+            <button id="startGameBtn" class="btn-primary">Start Game</button>
+            <button id="submitScoreBtn" class="btn-secondary" style="display: none;">Submit Highscore</button>
+        </div>
+        <div id="walletInfo" class="text-sm text-gray-600 mb-2"></div>
+        <div id="statusMessage" class="status-message" style="display: none;"></div>
+        <p class="text-xs text-gray-500 mt-4 text-center">
+            *Note: This game demonstrates high score submission to Solana via transaction memos. A robust high score system would require a custom Solana program for validation and structured storage.
+        </p>
+    </div>
+
+    <!-- Solana Web3.js library from CDN -->
+    <script src="https://unpkg.com/@solana/web3.js@latest/lib/index.iife.js"></script>
+    <script>
+        // Ensure solanaWeb3 object is available after script loading
+        if (typeof solanaWeb3 === 'undefined') {
+            console.error("Solana Web3.js not loaded. Please check the CDN link.");
+        }
+
+        // --- Game Constants ---
+        const CANVAS_WIDTH = 450;
+        const CANVAS_HEIGHT = 450;
+        const PLAYER_SIZE = 30;
+        const PLAYER_SPEED = 5;
+        const OBSTACLE_WIDTH = 40;
+        const OBSTACLE_HEIGHT = 40;
+        const OBSTACLE_SPEED_INITIAL = 2;
+        const OBSTACLE_SPAWN_INTERVAL = 1000; // milliseconds between new obstacles
+        const SCORE_INCREASE_INTERVAL = 100; // milliseconds to increase score by 1
+
+        // --- Game Variables ---
+        let canvas, ctx;
+        let player;
+        let obstacles = [];
+        let score = 0;
+        let highScore = 0;
+        let gameRunning = false;
+        let gameInterval; // Interval for the main game loop
+        let obstacleSpawnTimer; // Interval for spawning new obstacles
+        let scoreTimer; // Interval for incrementing score
+        let currentObstacleSpeed = OBSTACLE_SPEED_INITIAL; // Obstacle speed, increases with score
+
+        // --- DOM Elements ---
+        const scoreDisplay = document.getElementById('scoreDisplay');
+        const highScoreDisplay = document.getElementById('highScoreDisplay');
+        const connectWalletBtn = document.getElementById('connectWalletBtn');
+        const startGameBtn = document.getElementById('startGameBtn');
+        const submitScoreBtn = document.getElementById('submitScoreBtn');
+        const walletInfo = document.getElementById('walletInfo');
+        const statusMessage = document.getElementById('statusMessage');
+
+        // --- Solana Variables ---
+        let provider; // Wallet provider (e.g., Phantom)
+        let walletPublicKey; // Public key of the connected wallet
+        // Establish connection to Solana Devnet cluster
+        const connection = new solanaWeb3.Connection(solanaWeb3.clusterApiUrl('devnet'));
+
+        // --- Utility Functions ---
+        /**
+         * Displays a message to the user in the status area.
+         * @param {string} message - The message to display.
+         * @param {string} type - The type of message ('info', 'success', 'error').
+         */
+        function showMessage(message, type = 'info') {
+            statusMessage.innerHTML = message; // Use innerHTML for potential links
+            statusMessage.className = `status-message ${type}-message`;
+            statusMessage.style.display = 'block';
+        }
+
+        /**
+         * Hides the status message area.
+         */
+        function hideMessage() {
+            statusMessage.style.display = 'none';
+        }
+
+        // --- Game Logic Functions ---
+        /**
+         * Initializes the game canvas and loads the local high score.
+         */
+        function initGame() {
+            canvas = document.getElementById('gameCanvas');
+            ctx = canvas.getContext('2d');
+
+            // Set canvas dimensions explicitly for drawing consistency
+            canvas.width = CANVAS_WIDTH;
+            canvas.height = CANVAS_HEIGHT;
+
+            // Load high score from local storage for client-side persistence
+            const storedHighScore = localStorage.getItem('solanaDodgerHighScore');
+            if (storedHighScore) {
+                highScore = parseInt(storedHighScore);
+                highScoreDisplay.textContent = highScore;
+            }
+
+            resetGame(); // Set initial game state
+        }
+
+        /**
+         * Resets all game variables to their initial state.
+         */
+        function resetGame() {
+            player = {
+                x: (CANVAS_WIDTH - PLAYER_SIZE) / 2, // Center player horizontally
+                y: CANVAS_HEIGHT - PLAYER_SIZE - 10, // Player near the bottom
+                width: PLAYER_SIZE,
+                height: PLAYER_SIZE,
+                dx: 0 // Player's horizontal movement speed
+            };
+            obstacles = []; // Clear all obstacles
+            score = 0;
+            scoreDisplay.textContent = score;
+            currentObstacleSpeed = OBSTACLE_SPEED_INITIAL; // Reset obstacle speed
+            gameRunning = false;
+            // Clear any active game intervals
+            clearInterval(gameInterval);
+            clearInterval(obstacleSpawnTimer);
+            clearInterval(scoreTimer);
+            submitScoreBtn.style.display = 'none'; // Hide submit button
+            startGameBtn.textContent = 'Start Game'; // Reset start button text
+            draw(); // Draw the initial empty game state
+            hideMessage(); // Clear any previous messages
+        }
+
+        /**
+         * Starts the game, setting up intervals for game loop, obstacle spawning, and score.
+         */
+        function startGame() {
+            if (gameRunning) return; // Prevent multiple game instances
+            resetGame(); // Ensure a clean slate before starting
+            gameRunning = true;
+            startGameBtn.textContent = 'Restart Game'; // Change button text to indicate restart option
+            submitScoreBtn.style.display = 'none'; // Hide submit button until game over
+
+            // Main game loop: updates game state and redraws at 60 FPS
+            gameInterval = setInterval(updateGame, 1000 / 60);
+
+            // Obstacle spawning loop
+            obstacleSpawnTimer = setInterval(spawnObstacle, OBSTACLE_SPAWN_INTERVAL);
+
+            // Score incrementing loop
+            scoreTimer = setInterval(() => {
+                if (gameRunning) {
+                    score += 1;
+                    scoreDisplay.textContent = score;
+                    // Increase difficulty (obstacle speed and spawn rate) as score goes up
+                    if (score % 100 === 0 && currentObstacleSpeed < 10) {
+                        currentObstacleSpeed += 0.5; // Increase speed
+                        clearInterval(obstacleSpawnTimer); // Clear old spawn timer
+                        // Make spawning faster, with a minimum interval
+                        obstacleSpawnTimer = setInterval(spawnObstacle, Math.max(200, OBSTACLE_SPAWN_INTERVAL - (score / 2)));
+                    }
+                }
+            }, SCORE_INCREASE_INTERVAL);
+        }
+
+        /**
+         * Ends the game, stops intervals, displays final score, and updates high score.
+         */
+        function endGame() {
+            gameRunning = false;
+            // Stop all game loops
+            clearInterval(gameInterval);
+            clearInterval(obstacleSpawnTimer);
+            clearInterval(scoreTimer);
+            showMessage(`Game Over! Your score: ${score}`, 'info');
+
+            // Update local high score if current score is higher
+            if (score > highScore) {
+                highScore = score;
+                localStorage.setItem('solanaDodgerHighScore', highScore); // Save to local storage
+                highScoreDisplay.textContent = highScore;
+                showMessage(`New High Score: ${highScore}!`, 'success');
+            }
+
+            // Show submit button if a wallet is connected, regardless of new high score
+            if (walletPublicKey) {
+                submitScoreBtn.style.display = 'block';
+            }
+        }
+
+        /**
+         * Updates the game state for each frame.
+         */
+        function updateGame() {
+            if (!gameRunning) return;
+
+            // Update player position based on dx
+            player.x += player.dx;
+
+            // Clamp player position to canvas bounds
+            if (player.x < 0) player.x = 0;
+            if (player.x + player.width > CANVAS_WIDTH) player.x = CANVAS_WIDTH - player.width;
+
+            // Update obstacle positions and check for collisions
+            for (let i = 0; i < obstacles.length; i++) {
+                obstacles[i].y += currentObstacleSpeed; // Move obstacle downwards
+
+                // Simple AABB (Axis-Aligned Bounding Box) collision detection
+                if (
+                    player.x < obstacles[i].x + obstacles[i].width &&
+                    player.x + player.width > obstacles[i].x &&
+                    player.y < obstacles[i].y + obstacles[i].height &&
+                    player.y + player.height > obstacles[i].y
+                ) {
+                    endGame(); // Collision detected, end the game
+                    return; // Exit update loop immediately
+                }
+
+                // Remove obstacles that have moved off-screen to optimize performance
+                if (obstacles[i].y > CANVAS_HEIGHT) {
+                    obstacles.splice(i, 1);
+                    i--; // Decrement index to account for removed element
+                }
+            }
+
+            draw(); // Redraw the game state
+        }
+
+        /**
+         * Draws all game elements on the canvas.
+         */
+        function draw() {
+            ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT); // Clear the entire canvas
+
+            // Draw player (a filled rectangle)
+            ctx.fillStyle = '#6366f1'; // Indigo color
+            ctx.fillRect(player.x, player.y, player.width, player.height);
+
+            // Draw all active obstacles (filled rectangles)
+            ctx.fillStyle = '#ef4444'; // Red color
+            obstacles.forEach(obstacle => {
+                ctx.fillRect(obstacle.x, obstacle.y, obstacle.width, obstacle.height);
+            });
+        }
+
+        /**
+         * Creates and adds a new obstacle to the game.
+         */
+        function spawnObstacle() {
+            // Random X position within canvas bounds
+            const x = Math.random() * (CANVAS_WIDTH - OBSTACLE_WIDTH);
+            obstacles.push({
+                x: x,
+                y: -OBSTACLE_HEIGHT, // Start obstacle just above the visible canvas
+                width: OBSTACLE_WIDTH,
+                height: OBSTACLE_HEIGHT
+            });
+        }
+
+        // --- Event Listeners for Game Controls ---
+        document.addEventListener('keydown', e => {
+            if (!gameRunning) return; // Only respond to input if game is running
+            if (e.key === 'ArrowLeft' || e.key.toLowerCase() === 'a') {
+                player.dx = -PLAYER_SPEED; // Move left
+            } else if (e.key === 'ArrowRight' || e.key.toLowerCase() === 'd') {
+                player.dx = PLAYER_SPEED; // Move right
+            }
+        });
+
+        document.addEventListener('keyup', e => {
+            if (!gameRunning) return;
+            // Stop player movement when key is released, only if moving in that direction
+            if ((e.key === 'ArrowLeft' || e.key.toLowerCase() === 'a') && player.dx < 0) {
+                player.dx = 0;
+            } else if ((e.key === 'ArrowRight' || e.key.toLowerCase() === 'd') && player.dx > 0) {
+                player.dx = 0;
+            }
+        });
+
+        // Event listener for the "Start Game" button
+        startGameBtn.addEventListener('click', startGame);
+
+        // --- Solana Integration Functions and Event Listeners ---
+        /**
+         * Connects to the user's Phantom wallet.
+         */
+        connectWalletBtn.addEventListener('click', async () => {
+            console.log("Attempting to connect wallet...");
+            const { solana } = window; // Access the Phantom wallet object
+
+            if (solana && solana.isPhantom) {
+                showMessage('Connecting to Phantom wallet...', 'info');
+                try {
+                    provider = solana; // Assign provider here
+                    const resp = await provider.connect(); // Request wallet connection
+
+                    // --- START DEBUG LOGGING ---
+                    console.log("Raw response from provider.connect():", resp);
+                    console.log("Type of resp.publicKey:", typeof resp.publicKey);
+                    console.log("Is resp.publicKey truthy?", !!resp.publicKey);
+                    console.log("Is resp.publicKey an object?", typeof resp.publicKey === 'object' && resp.publicKey !== null);
+                    console.log("Is resp.publicKey an instance of solanaWeb3.PublicKey?", resp.publicKey instanceof solanaWeb3.PublicKey);
+                    // --- END DEBUG LOGGING ---
+
+                    // Explicitly convert resp.publicKey to a solanaWeb3.PublicKey instance
+                    if (resp && resp.publicKey) {
+                        // If it's already a PublicKey instance, use it directly.
+                        // Otherwise, convert its string representation to a PublicKey instance.
+                        if (resp.publicKey instanceof solanaWeb3.PublicKey) {
+                            walletPublicKey = resp.publicKey;
+                        } else if (typeof resp.publicKey.toString === 'function') {
+                            walletPublicKey = new solanaWeb3.PublicKey(resp.publicKey.toString());
+                        } else {
+                            throw new Error("Public key received from wallet connection is not in a recognized format.");
+                        }
+
+                        // Display truncated public key
+                        walletInfo.textContent = `Connected: ${walletPublicKey.toBase58().substring(0, 6)}...${walletPublicKey.toBase58().slice(-4)}`;
+                        connectWalletBtn.style.display = 'none'; // Hide connect button once connected
+                        showMessage('Wallet connected successfully!', 'success');
+                        console.log("Wallet Public Key (connected):", walletPublicKey.toBase58());
+                    } else {
+                        throw new Error("No public key received from wallet connection.");
+                    }
+                } catch (error) {
+                    console.error("Wallet connection error:", error);
+                    showMessage(`Wallet connection failed: ${error.message}. Please ensure Phantom is unlocked and try again.`, 'error');
+                }
+            } else {
+                // This message is shown if window.solana is not found, which is expected in an iframe.
+                showMessage(
+                    'Phantom wallet not detected. If you have Phantom installed, please copy this code into an HTML file and open it directly in your browser (not in this preview environment) to connect your wallet. <a href="https://phantom.app/" target="_blank" class="text-blue-600 hover:underline">Install Phantom Wallet</a>',
+                    'error'
+                );
+                console.warn("Phantom wallet (window.solana) not found. This is expected if running in an iframe.");
+            }
+        });
+
+        /**
+         * Submits the current game score to the Solana blockchain as a transaction memo.
+         */
+        submitScoreBtn.addEventListener('click', async () => {
+            // Add a more robust check for walletPublicKey being a valid PublicKey instance
+            if (!walletPublicKey || !(walletPublicKey instanceof solanaWeb3.PublicKey)) {
+                showMessage('Wallet not properly connected. Please connect your Phantom wallet again.', 'error');
+                console.error("Wallet public key is not a valid PublicKey object:", walletPublicKey);
+                return;
+            }
+
+            if (score === 0) {
+                showMessage('Cannot submit a score of 0. Play the game first!', 'error');
+                return;
+            }
+
+            showMessage(`Submitting score ${score} to Solana... This may take a moment.`, 'info');
+
+            try {
+                const transaction = new solanaWeb3.Transaction();
+                // The program ID for the Solana Memo Program (a standard program)
+                const memoProgramId = new solanaWeb3.PublicKey('MemoSq4gqABAXKb96WygstoHX6JkRzQJqZpMPdgY9A');
+                // Create the memo string with the score and wallet address
+                const scoreMemo = `Highscore: ${score} by ${walletPublicKey.toBase58()}`;
+
+                // Add a SystemProgram.transfer instruction. Even a 0 SOL transfer is a valid transaction.
+                // This is a common pattern to just get a memo on-chain without an actual SOL transfer.
+                transaction.add(
+                    solanaWeb3.SystemProgram.transfer({
+                        fromPubkey: walletPublicKey,
+                        toPubkey: walletPublicKey, // Sending to self, or a dummy address
+                        lamports: 0, // 0 SOL transfer
+                    })
+                );
+
+                // Add the memo instruction to the transaction
+                transaction.add(
+                    new solanaWeb3.TransactionInstruction({
+                        keys: [], // Memo instruction does not require any accounts in keys
+                        programId: memoProgramId,
+                        data: Buffer.from(scoreMemo, 'utf8'), // The score memo as Buffer data
+                    })
+                );
+
+                // Get the latest blockhash for the transaction to be valid
+                const { blockhash } = await connection.getLatestBlockhash();
+                transaction.recentBlockhash = blockhash;
+                transaction.feePayer = walletPublicKey; // Set the fee payer
+
+                // Sign the transaction using the connected wallet
+                const signedTransaction = await provider.signTransaction(transaction);
+                // Send the signed transaction to the Solana cluster
+                const signature = await connection.sendRawTransaction(signedTransaction.serialize());
+
+                // Confirm the transaction's finality
+                await connection.confirmTransaction(signature, 'confirmed');
+
+                // Display success message with a link to Solscan for verification
+                showMessage(`Score submitted! Transaction ID: ${signature.substring(0, 10)}... <a href="https://solscan.io/tx/${signature}?cluster=devnet" target="_blank" class="text-blue-600 hover:underline">View on Solscan</a>`, 'success');
+                submitScoreBtn.style.display = 'none'; // Hide submit button after successful submission
+
+            } catch (error) {
+                console.error("Error submitting score:", error);
+                // Provide user-friendly error message
+                showMessage(`Failed to submit score: ${error.message}. Ensure you have enough SOL for transaction fees.`, 'error');
+            }
+        });
+
+        // Initialize the game when the window has fully loaded
+        window.onload = initGame;
+    </script>
+</body>
+</html>
